@@ -73,4 +73,4 @@ code so it is still ok in terms of coding style.
 - I do not like to parse arguments myself, I usually prefer using boost.
 This part of the code is ugly, and I'm sorry :/
 
-#Thank you for your time!
+# Thank you for your time!
