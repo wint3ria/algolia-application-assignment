@@ -14,6 +14,7 @@
 # include <unordered_set>
 # include <set>
 
+
 class request
 {
 public:
@@ -22,7 +23,9 @@ public:
      , timestamp_(timestamp)
     { }
 
-    request() = default;
+    request()
+     : request(0, "")
+    { }
 
     unsigned long get_timestamp() const { return timestamp_; }
     const std::string& get_request() const {return request_; }
@@ -53,113 +56,100 @@ static request producer(const line& line)
 }
 
 
-template<typename input_it_t>
+template<typename input_it_t, typename value_type_t, typename func_t>
 class base_iterator
 {
 public:
-    using base_iterator_t = base_iterator<input_it_t>;
+    using base_iterator_t = base_iterator<input_it_t, value_type_t, func_t>;
+    using value_type = value_type_t;
 
-    explicit base_iterator(input_it_t in)
-     : in_(in)
+    explicit base_iterator(input_it_t in, func_t f)
+     : in_(std::move(in))
+     , f_(std::move(f))
     { }
 
-    bool operator==(const base_iterator_t& other) const { return other.in_ == in_; }
-    bool operator!=(const base_iterator_t& other) const { return other.in_ != in_; }
+    virtual ~base_iterator() = default;
+
+    inline bool operator==(const base_iterator_t& other) const { return other.in_ == in_; }
+    inline bool operator!=(const base_iterator_t& other) const { return other.in_ != in_; }
+    inline value_type& operator *() { return cur_; }
+    inline value_type* operator->() { return &cur_; }
 
 protected:
+    template<typename derived_t>
+    inline derived_t increment_operator_postfix()
+    {
+        derived_t cpy = *dynamic_cast<derived_t*>(this);
+        ++(*dynamic_cast<derived_t*>(this));
+        return cpy;
+    }
+
     input_it_t in_;
+    func_t f_;
+    value_type cur_;
 };
 
 
 template<typename input_it_t, typename value_type_t>
-class transform_input_iterator : public base_iterator<input_it_t>
+class transform_input_iterator
+ : public base_iterator<input_it_t, value_type_t, std::function<value_type_t(typename input_it_t::value_type)>>
 {
 public:
-    using base_t = base_iterator<input_it_t>;
     using transform_input_iterator_t = transform_input_iterator<input_it_t, value_type_t>;
     using func_t = std::function<value_type_t(typename input_it_t::value_type)>;
+    using base_t = base_iterator<input_it_t, value_type_t, func_t>;
     using value_type = value_type_t;
 
     transform_input_iterator(input_it_t in, func_t f)
-     : base_t(in)
-     , f_(std::move(f))
+     : base_t(in, f)
     { }
 
-
-    value_type& operator *()
+    inline transform_input_iterator_t& operator++()
     {
-        if (!defined_)
-        {
-            defined_ = true;
-            cur_ = f_(*base_t::in_);
-        }
-        return cur_;
-    }
-
-    value_type* operator->()
-    {
-        **this;
-        return &cur_;
-    }
-
-    transform_input_iterator_t& operator++()
-    {
-        defined_ = false;
         base_t::in_++;
+        base_t::cur_ = base_t::f_(*base_t::in_);
         return *this;
     }
 
-    transform_input_iterator_t operator++(int)
+    inline transform_input_iterator_t operator++(int)
     {
-        transform_input_iterator_t cpy(*this);
-        ++(*this);
-        return cpy;
+        return base_t:: template increment_operator_postfix<transform_input_iterator_t>();
     }
-
-private:
-    func_t f_;
-    bool defined_ = false;
-    value_type cur_;
 
 };
 
 
 template<typename input_it_t>
-class filter_input_iterator : public base_iterator<input_it_t>
+class filter_input_iterator
+ : public base_iterator<input_it_t, typename input_it_t::value_type, std::function<bool(typename input_it_t::value_type)>>
 {
 public:
-    using base_t = base_iterator<input_it_t>;
     using filter_input_iterator_t = filter_input_iterator<input_it_t>;
     using value_type = typename input_it_t::value_type;
     using func_t = std::function<bool(typename input_it_t::value_type)>;
+    using base_t = base_iterator<input_it_t, value_type, func_t>;
 
     filter_input_iterator(input_it_t in, input_it_t end, func_t f)
-     : base_t(in)
+     : base_t(in, f)
      , end_(end)
-     , f_(f)
     { }
 
-    typename input_it_t::value_type& operator *() { return *base_t::in_; }
-    input_it_t operator->() { return base_t::in_; }
-
-    filter_input_iterator_t& operator++()
+    inline filter_input_iterator_t& operator++()
     {
         do
             base_t::in_++;
-        while(base_t::in_ != end_ && !f_(*base_t::in_));
+        while(base_t::in_ != end_ && !base_t::f_(*base_t::in_));
+        base_t::cur_ = *base_t::in_;
         return *this;
     }
 
-    filter_input_iterator_t operator++(int)
+    inline filter_input_iterator_t operator++(int)
     {
-        filter_input_iterator_t cpy(*this);
-        ++(*this);
-        return cpy;
+        return base_t:: template increment_operator_postfix<filter_input_iterator_t>();
     }
 
 private:
     input_it_t end_;
-    func_t f_;
 };
 
 
@@ -193,17 +183,15 @@ void compute_n_most_common(iterator_t begin, iterator_t end, unsigned top_n)
     };
     std::for_each(freq_set.begin(), freq_set.end(), top_counter);
     for (auto it = most_common.rbegin(); it != most_common.rend(); it++)
-    {
         std::cout << it->second << " " << it->first << std::endl;
-    }
 }
 
 
 template<typename input_it_t, typename transform_fun_t>
 static inline auto add_transform_layer(input_it_t begin, input_it_t end, transform_fun_t f)
 {
-    transform_input_iterator<decltype(begin), request> pipeline_begin(begin, f);
-    transform_input_iterator<decltype(begin), request> pipeline_end(end, f);
+    transform_input_iterator<input_it_t, request> pipeline_begin(begin, f);
+    transform_input_iterator<input_it_t, request> pipeline_end(end, f);
     return std::make_pair(pipeline_begin, pipeline_end);
 }
 
@@ -212,7 +200,7 @@ template<typename input_it_t, typename predicate_t>
 static inline auto add_filter_layer(input_it_t begin, input_it_t end, predicate_t f)
 {
     filter_input_iterator<input_it_t> pipeline_begin(begin, end, f);
-    filter_input_iterator<decltype(begin)> pipeline_end(end, end, f);
+    filter_input_iterator<input_it_t> pipeline_end(end, end, f);
     return std::make_pair(pipeline_begin, pipeline_end);
 }
 
