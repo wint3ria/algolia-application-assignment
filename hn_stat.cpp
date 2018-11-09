@@ -25,7 +25,6 @@ public: // Constructors
     { }
 
     request()
-     : request(0, "")
     { }
 
 public: // Getters
@@ -170,7 +169,11 @@ public: // Constructors
     filter_input_iterator(input_it_t in, input_it_t end, func_t f)
      : base_t(in, f)
      , end_(std::move(end))
-    { }
+    {
+        // Search the first value matching the predicate f_
+        if (base_t::in_ != end_ && !base_t::f_(*base_t::in_))
+            ++(*this);
+    }
 
 public: // Operators
     inline filter_input_iterator_t& operator++()
@@ -229,12 +232,12 @@ auto define_pipeline(std::ifstream &file, size_t from, size_t to)
     // layer: request
     auto layer1 = add_transform_layer(begin, end, line_to_request);
 
-    // layer: timestamp > from
-    auto sup_predicate = [from](request b) { return from < b.get_timestamp(); };
+    // layer: timestamp >= from
+    auto sup_predicate = [from](request b) { return from <= b.get_timestamp(); };
     auto layer2 = add_filter_layer(layer1.first, layer1.second, sup_predicate);
 
-    // layer: timestamp < to
-    auto inf_predicate = [to](request b) { return to > b.get_timestamp(); };
+    // layer: timestamp <= to
+    auto inf_predicate = [to](request b) { return to >= b.get_timestamp(); };
     auto layer3 = add_filter_layer(layer2.first, layer2.second, inf_predicate);
 
     return layer3;
@@ -268,7 +271,7 @@ void compute_distinct(iterator_t begin, iterator_t end)
  * 3) Print the values in the set to cout.
  */
 template<typename iterator_t>
-void compute_n_most_common(iterator_t begin, iterator_t end, unsigned top_n)
+void compute_n_most_common(iterator_t begin, iterator_t end, size_t top_n)
 {
     std::unordered_multiset<std::string> freq_set;
     auto insert = [&freq_set](request& r) { freq_set.insert(std::move(r.get_request())); }; // Avoid copies
@@ -296,14 +299,61 @@ int main(int argc, char* argv[])
     size_t from = 0;
     size_t to = UINT64_MAX;
     std::string filename(argv[argc - 1]);
-    unsigned top_n = 11;
+    size_t top_n = 0;
+
+    // Parsing arguments from the command line, the dirty way.
+    // The reader can skip to line 346 safely.
+    // For this kind of "code", I usually make advantage of a third party lib, but it is not allowed here... T_T
+    bool arg_error;
+    if (argc < 3)
+    {
+        std::cerr << "Invalid parameters" << std::endl;
+        exit(1);
+    }
+    std::string mode = argv[1];
+    unsigned option_pos = 2;
+    if ("distinct" == mode)
+    {
+        argc -= 3;
+        arg_error = argc < 0 || (argc != 2 && argc != 4);
+    }
+    else if ("top" == mode)
+    {
+        try
+        {
+            top_n = std::stoul(argv[2]);
+        }
+        catch (std::invalid_argument&)
+        {
+            arg_error = true;
+        }
+        argc -= 4;
+        arg_error = argc < 0 || (argc != 2 && argc != 4 && argc != 0);
+        option_pos = 3;
+    }
+    else
+        arg_error = true;
+    if (arg_error)
+    {
+        std::cerr << "Invalid parameters" << std::endl;
+        exit(1);
+    }
+
+    for (int i = option_pos; i < option_pos + argc; i += 2)
+    {
+        if (argv[i] == std::string("--from"))
+            from = std::stoul(argv[i + 1]);
+        else
+            to = std::stoul(argv[i + 1]);
+    }
 
     std::ifstream inputFile(filename);
-    std::getline(inputFile, filename); // Skip first line
     auto pipeline = define_pipeline(inputFile, from, to);
 
-    //compute_distinct(pipeline.first, pipeline.second);
-    compute_n_most_common(pipeline.first, pipeline.second, top_n);
+    if (mode == "top")
+        compute_n_most_common(pipeline.first, pipeline.second, top_n);
+    else
+        compute_distinct(pipeline.first, pipeline.second);
 
     return 0;
 }
