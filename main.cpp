@@ -2,18 +2,14 @@
 // Created by nicolas on 07/11/18.
 //
 
-# include <unordered_map>
-# include <fstream>
-# include <iostream>
-# include <cstring>
-# include <regex>
-# include <functional>
-# include <utility>
-# include <iterator>
-# include <type_traits>
-# include <unordered_set>
-# include <set>
-
+#include <algorithm>
+#include <fstream>
+#include <functional>
+#include <iostream>
+#include <iterator>
+#include <set>
+#include <sstream>
+#include <unordered_set>
 
 class request
 {
@@ -121,7 +117,10 @@ public:
 
 template<typename input_it_t>
 class filter_input_iterator
- : public base_iterator<input_it_t, typename input_it_t::value_type, std::function<bool(typename input_it_t::value_type)>>
+ : public base_iterator<
+         input_it_t,
+         typename input_it_t::value_type,
+         std::function<bool(typename input_it_t::value_type)> >
 {
 public:
     using filter_input_iterator_t = filter_input_iterator<input_it_t>;
