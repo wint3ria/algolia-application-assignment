@@ -12,6 +12,7 @@
 #include <sstream>
 #include <unordered_set>
 #include <utility>
+#include <unordered_map>
 
 /*
  * Basic class representing a request, with its timestamp and text.
@@ -262,9 +263,8 @@ void compute_distinct(iterator_t begin, iterator_t end)
 /*
  * N most common requests.
  *
- * 1) Insert every request in an unordered_multiset.
- * 2) Use the average constant count method of the unordered_multiset to find the most frequent requests.
- *    Insert each values of the unordered_multiset in an (ordered) set its count is larger than the smallest count of
+ * 1) Insert every request in an unordered_map.
+ * 2) Insert each values of the unordered_map in an (ordered) set if its count is larger than the smallest count of
  *    the set.
  *    Remove the values with the smallest count in the set when the set size is larger than top_n
  * 3) Print the values in the set to cout.
@@ -272,16 +272,20 @@ void compute_distinct(iterator_t begin, iterator_t end)
 template<typename iterator_t>
 void compute_n_most_common(iterator_t begin, iterator_t end, size_t top_n)
 {
-    std::unordered_multiset<std::string> freq_set;
-    auto insert = [&freq_set](request& r) { freq_set.insert(std::move(r.get_request())); }; // Avoid copies
+    std::unordered_map<std::string, unsigned> freq_set;
+    auto insert = [&freq_set](request& r) {
+        if (!freq_set.count(r.get_request()))
+            freq_set[std::move(r.get_request())] = 1;  // Avoid copies
+        else
+            freq_set[r.get_request()] += 1;
+    };
     std::for_each(begin, end, insert);
     std::set<std::pair<unsigned, std::string>> most_common;
     unsigned worse_n = 0;
-    auto top_counter = [&freq_set, &most_common, &worse_n, top_n](const std::string& req) {
-        size_t count = freq_set.count(req);
-        if (most_common.size() < top_n or count > worse_n)
+    auto top_counter = [&most_common, &worse_n, top_n](std::pair<const std::string, unsigned>& pair) {
+        if (most_common.size() < top_n or pair.second > worse_n)
         {
-            most_common.emplace(count, req);
+            most_common.emplace(pair.second, pair.first);
             if (most_common.size() > top_n)
                 most_common.erase(*most_common.begin());
             worse_n = most_common.begin()->first;
