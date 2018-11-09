@@ -199,23 +199,37 @@ void compute_n_most_common(iterator_t begin, iterator_t end, unsigned top_n)
 }
 
 
-auto build_pipeline(std::ifstream& file, size_t from, size_t to)
+template<typename input_it_t, typename transform_fun_t>
+static inline auto add_transform_layer(input_it_t begin, input_it_t end, transform_fun_t f)
 {
-    std::istream_iterator<line> begin(file);
-    std::istream_iterator<line> end;
+    transform_input_iterator<decltype(begin), request> pipeline_begin(begin, f);
+    transform_input_iterator<decltype(begin), request> pipeline_end(end, f);
+    return std::make_pair(pipeline_begin, pipeline_end);
+}
 
-    transform_input_iterator<decltype(begin), request> it1(begin, producer);
-    transform_input_iterator<decltype(begin), request> it1_end(end, producer);
+
+template<typename input_it_t, typename predicate_t>
+static inline auto add_filter_layer(input_it_t begin, input_it_t end, predicate_t f)
+{
+    filter_input_iterator<input_it_t> pipeline_begin(begin, end, f);
+    filter_input_iterator<decltype(begin)> pipeline_end(end, end, f);
+    return std::make_pair(pipeline_begin, pipeline_end);
+}
+
+
+auto define_pipeline(std::ifstream &file, size_t from, size_t to)
+{
+    std::istream_iterator<line> begin(file), end;
+
+    auto layer1 = add_transform_layer(begin, end, producer);
 
     auto sup_predicate = [from](request b) { return from < b.get_timestamp(); };
-    filter_input_iterator<decltype(it1)> it2(it1, it1_end, sup_predicate);
-    filter_input_iterator<decltype(it1)> it2_end(it1_end, it1_end, sup_predicate);
+    auto layer2 = add_filter_layer(layer1.first, layer1.second, sup_predicate);
 
     auto inf_predicate = [to](request b) { return to > b.get_timestamp(); };
-    filter_input_iterator<decltype(it2)> pipeline_begin(it2, it2_end, inf_predicate);
-    filter_input_iterator<decltype(it2)> pipeline_end(it2_end, it2_end, inf_predicate);
+    auto layer3 = add_filter_layer(layer2.first, layer2.second, inf_predicate);
 
-    return std::make_pair(pipeline_begin, pipeline_end);
+    return layer3;
 }
 
 
@@ -227,7 +241,7 @@ int main(int argc, char* argv[])
     unsigned top_n = 10;
 
     std::ifstream inputFile(filename);
-    auto pipeline = build_pipeline(inputFile, from, to);
+    auto pipeline = define_pipeline(inputFile, from, to);
 
     //compute_distinct(pipeline.first, pipeline.second);
     compute_n_most_common(pipeline.first, pipeline.second, top_n);
