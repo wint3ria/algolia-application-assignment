@@ -24,8 +24,7 @@ public: // Constructors
      , timestamp_(timestamp)
     { }
 
-    request()
-    { }
+    request() = default;
 
 public: // Getters
     unsigned long get_timestamp() const { return timestamp_; }
@@ -339,7 +338,7 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
-    for (int i = option_pos; i < option_pos + argc; i += 2)
+    for (unsigned i = option_pos; i < option_pos + argc; i += 2)
     {
         if (argv[i] == std::string("--from"))
             from = std::stoul(argv[i + 1]);
